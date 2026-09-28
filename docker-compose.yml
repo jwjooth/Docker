@@ -1,0 +1,201 @@
+name: dms-infra
+
+x-logging: &default-logging
+    driver: json-file
+    options:
+        max-size: "10m"
+        max-file: "3"
+
+x-restart-policy: &default-restart
+    restart: unless-stopped
+
+x-security: &default-security
+    security_opt:
+        - no-new-privileges:true
+    init: true
+
+networks:
+    backend:
+        driver: bridge
+        name: dms_backend
+
+volumes:
+    postgres_data:
+        name: dms_postgres_data
+    rabbitmq_data:
+        name: dms_rabbitmq_data
+    mysql_data:
+        name: dms_mysql_data
+    mssql_data:
+        name: dms_mssql_data
+
+services:
+    # ── PostgreSQL (Official) ──────────────────────────────────────────────
+    postgres:
+        image: postgres:17-alpine
+        container_name: postgres
+        <<: [*default-restart, *default-security]
+        ports:
+            - "127.0.0.1:5432:5432"
+        environment:
+            POSTGRES_DB: ${POSTGRES_DB}
+            POSTGRES_USER: ${POSTGRES_USER}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+            TZ: Asia/Jakarta
+            PGDATA: /var/lib/postgresql/data/pgdata
+        volumes:
+            - postgres_data:/var/lib/postgresql/data
+        command: >
+            postgres
+            -c max_connections=150
+            -c shared_buffers=256MB
+            -c effective_cache_size=512MB
+            -c maintenance_work_mem=64MB
+            -c checkpoint_completion_target=0.9
+            -c wal_buffers=16MB
+            -c default_statistics_target=100
+            -c random_page_cost=1.1
+            -c effective_io_concurrency=200
+            -c work_mem=1638kB
+            -c min_wal_size=1GB
+            -c max_wal_size=4GB
+            -c log_min_duration_statement=1000
+            -c log_statement=mod
+            -c max_parallel_workers_per_gather=2
+            -c max_worker_processes=2
+            -c max_parallel_workers=2
+        networks:
+            - backend
+        healthcheck:
+            test:
+                [
+                    "CMD-SHELL",
+                    "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}",
+                ]
+            interval: 10s
+            timeout: 3s
+            retries: 3
+            start_period: 15s
+        ulimits:
+            nofile:
+                soft: 65536
+                hard: 65536
+        mem_limit: 768m
+        mem_reservation: 512m
+        cpus: 1.0
+        logging: *default-logging
+
+    # ── MySQL (Alpine) ────────────────────────────────────────────────────
+    mysql:
+        image: mysql:8.0-alpine
+        container_name: mysql
+        <<: [*default-restart, *default-security]
+        ports:
+            - "127.0.0.1:3306:3306"
+        environment:
+            MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+            MYSQL_DATABASE: ${MYSQL_DATABASE}
+            MYSQL_USER: ${MYSQL_USER}
+            MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+            TZ: Asia/Jakarta
+        volumes:
+            - mysql_data:/var/lib/mysql
+        command: >
+            mysqld
+            --skip-name-resolve
+            --skip-symbolic-links
+            --max_connections=150
+            --max_allowed_packet=256M
+            --innodb_buffer_pool_size=384M
+            --innodb_log_file_size=96M
+            --innodb_flush_log_at_trx_commit=2
+            --innodb_flush_method=O_DIRECT
+            --query_cache_size=0
+            --query_cache_type=0
+            --character-set-server=utf8mb4
+            --collation-server=utf8mb4_unicode_ci
+            --default-storage-engine=InnoDB
+            --log_bin=mysql-bin
+            --server-id=1
+            --binlog_format=ROW
+            --slow_query_log=1
+            --slow_query_log_file=/var/log/mysql/slow.log
+            --long_query_time=2
+            --log-error=/var/log/mysql/error.log
+        networks:
+            - backend
+        healthcheck:
+            test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+            interval: 10s
+            timeout: 3s
+            retries: 3
+            start_period: 20s
+        ulimits:
+            nofile:
+                soft: 65536
+                hard: 65536
+        mem_limit: 512m
+        mem_reservation: 256m
+        cpus: 0.75
+        logging: *default-logging
+
+    # ── RabbitMQ (Message Queue) ───────────────────────────────────────────
+    rabbitmq:
+        image: rabbitmq:4-management-alpine
+        container_name: rabbitmq
+        <<: [*default-restart, *default-security]
+        ports:
+            - "127.0.0.1:5672:5672"
+            - "127.0.0.1:15672:15672"
+        environment:
+            RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+            RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+            TZ: Asia/Jakarta
+        volumes:
+            - rabbitmq_data:/var/lib/rabbitmq
+        networks:
+            - backend
+        healthcheck:
+            test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+            interval: 15s
+            timeout: 5s
+            retries: 10
+            start_period: 30s
+        ulimits:
+            nofile:
+                soft: 65536
+                hard: 65536
+        mem_limit: 512m
+        mem_reservation: 256m
+        cpus: 0.5
+        logging: *default-logging
+
+    # ── MSSQL (Microsoft SQL Server) ───────────────────────────────────────
+    mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        container_name: mssql
+        <<: [*default-restart, *default-security]
+        ports:
+            - "127.0.0.1:1433:1433"
+        environment:
+            ACCEPT_EULA: "Y"
+            MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
+            TZ: Asia/Jakarta
+        volumes:
+            - mssql_data:/var/opt/mssql
+        networks:
+            - backend
+        healthcheck:
+            test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P ${MSSQL_SA_PASSWORD} -Q 'SELECT 1'"]
+            interval: 10s
+            timeout: 5s
+            retries: 10
+            start_period: 30s
+        ulimits:
+            nofile:
+                soft: 65536
+                hard: 65536
+        mem_limit: 2g
+        mem_reservation: 1g
+        cpus: 1.5
+        logging: *default-logging

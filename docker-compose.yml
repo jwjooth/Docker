@@ -28,6 +28,12 @@ volumes:
         name: dms_mysql_data
     mssql_data:
         name: dms_mssql_data
+    redis_data:
+        name: dms_redis_data
+    nginx_html:
+        name: dms_nginx_html
+    apache_html:
+        name: dms_apache_html
 
 services:
     # ── PostgreSQL (Official) ──────────────────────────────────────────────
@@ -198,4 +204,87 @@ services:
         mem_limit: 2g
         mem_reservation: 1g
         cpus: 1.5
+        logging: *default-logging
+
+    # ── Redis (Key-Value Store) ────────────────────────────────────────────
+    redis:
+        image: redis:7-alpine
+        container_name: redis
+        <<: [*default-restart, *default-security]
+        ports:
+            - "127.0.0.1:6379:6379"
+        environment:
+            REDIS_PASSWORD: ${REDIS_PASSWORD}
+            TZ: Asia/Jakarta
+        volumes:
+            - redis_data:/data
+        command: >
+            redis-server
+            --appendonly yes
+            --requirepass ${REDIS_PASSWORD}
+            --maxmemory 256mb
+            --maxmemory-policy allkeys-lru
+        networks:
+            - backend
+        healthcheck:
+            test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+            interval: 10s
+            timeout: 3s
+            retries: 3
+            start_period: 10s
+        ulimits:
+            nofile:
+                soft: 65536
+                hard: 65536
+        mem_limit: 256m
+        mem_reservation: 128m
+        cpus: 0.5
+        logging: *default-logging
+
+    # ── Nginx (Reverse Proxy / Web Server) ─────────────────────────────────
+    nginx:
+        image: nginx:stable-alpine
+        container_name: nginx
+        <<: [*default-restart, *default-security]
+        ports:
+            - "127.0.0.1:${NGINX_HTTP_PORT:-8080}:80"
+        environment:
+            TZ: Asia/Jakarta
+        volumes:
+            - nginx_html:/usr/share/nginx/html:ro
+        networks:
+            - backend
+        healthcheck:
+            test: ["CMD-SHELL", "wget -q -O - http://localhost/ || exit 1"]
+            interval: 15s
+            timeout: 3s
+            retries: 3
+            start_period: 10s
+        mem_limit: 128m
+        mem_reservation: 64m
+        cpus: 0.5
+        logging: *default-logging
+
+    # ── Apache (Web Server) ────────────────────────────────────────────────
+    apache:
+        image: httpd:2.4-alpine
+        container_name: apache
+        <<: [*default-restart, *default-security]
+        ports:
+            - "127.0.0.1:${APACHE_HTTP_PORT:-8081}:80"
+        environment:
+            TZ: Asia/Jakarta
+        volumes:
+            - apache_html:/usr/local/apache2/htdocs:ro
+        networks:
+            - backend
+        healthcheck:
+            test: ["CMD-SHELL", "wget -q -O - http://localhost/ || exit 1"]
+            interval: 15s
+            timeout: 3s
+            retries: 3
+            start_period: 10s
+        mem_limit: 128m
+        mem_reservation: 64m
+        cpus: 0.5
         logging: *default-logging

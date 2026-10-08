@@ -10,6 +10,9 @@ Unified Docker infrastructure for PostgreSQL, MySQL, RabbitMQ, and MSSQL with ce
 | MySQL | 3306 | `mysql:8.0-alpine` | MySQL 8.0 database |
 | RabbitMQ | 5672 / 15672 | `rabbitmq:4-management-alpine` | Message broker with management UI |
 | MSSQL | 1433 | `mcr.microsoft.com/mssql/server:2022-latest` | Microsoft SQL Server 2022 |
+| Redis | 6379 | `redis:7-alpine` | Key-value store (AOF, LRU 256MB) |
+| Nginx | 8080 | `nginx:stable-alpine` | Reverse proxy / web server |
+| Apache | 8081 | `httpd:2.4-alpine` | Web server |
 
 All ports bind to `127.0.0.1` (localhost only) for security.
 
